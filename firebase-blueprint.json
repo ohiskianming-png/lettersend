@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "Letter": {
+      "title": "Letter",
+      "description": "A digital letter with media attachments.",
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The message body of the letter."
+        },
+        "envelopeUrl": {
+          "type": "string",
+          "description": "URL to the envelope cover photo."
+        },
+        "musicUrl": {
+          "type": "string",
+          "description": "URL to the background music file."
+        },
+        "musicTitle": {
+          "type": "string",
+          "description": "Title of the background music."
+        },
+        "fileUrl": {
+          "type": "string",
+          "description": "URL to an attached file."
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Name of the attached file."
+        },
+        "senderId": {
+          "type": "string",
+          "description": "Firebase UID of the sender."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Display name of the sender."
+        },
+        "recipientName": {
+          "type": "string",
+          "description": "Display name of the recipient."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the letter was created."
+        },
+        "code": {
+          "type": "string",
+          "description": "Unique short code for accessing the letter."
+        }
+      },
+      "required": ["content", "envelopeUrl", "senderId", "createdAt", "code"]
+    }
+  },
+  "firestore": {
+    "/letters/{letterId}": {
+      "schema": "Letter",
+      "description": "Collection of all digital letters."
+    }
+  }
+}

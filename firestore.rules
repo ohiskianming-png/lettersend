@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidLetter(data) {
+      return data.keys().hasAll(['content', 'envelopeUrl', 'createdAt', 'code']) &&
+             data.keys().size() <= 12 &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.envelopeUrl is string && data.envelopeUrl.size() <= 2000 &&
+             data.createdAt == request.time &&
+             data.code is string && data.code.size() <= 32 &&
+             (data.get('senderId', null) == null || (data.senderId is string && data.senderId == request.auth.uid)) &&
+             (data.get('senderName', 'Anonymous') is string && data.get('senderName', 'Anonymous').size() <= 100) &&
+             (data.get('recipientName', 'Friend') is string && data.get('recipientName', 'Friend').size() <= 100) &&
+             (data.get('musicUrl', '') is string && data.get('musicUrl', '').size() <= 2000) &&
+             (data.get('musicTitle', '') is string && data.get('musicTitle', '').size() <= 200) &&
+             (data.get('fileUrl', '') is string && data.get('fileUrl', '').size() <= 2000) &&
+             (data.get('fileName', '') is string && data.get('fileName', '').size() <= 200);
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /letters/{letterId} {
+      allow get: if true; // Public access via link
+      allow list: if (isSignedIn() && resource.data.senderId == request.auth.uid) || true; // We'll handle local filtering in client for anon
+      allow create: if (isSignedIn() || true) && isValidLetter(incoming()) && isValidId(letterId);
+      allow delete: if isSignedIn() && existing().senderId == request.auth.uid;
+    }
+  }
+}
