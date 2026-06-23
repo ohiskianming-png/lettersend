@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { collection, query, where, getDocs, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Mail, Plus, Trash2, ExternalLink, Calendar, Link as LinkIcon, Trash } from 'lucide-react';
+import { Mail, Plus, Trash2, ExternalLink, Calendar, Link as LinkIcon, Trash, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../lib/utils';
 
 export default function Dashboard({ user }: { user: User }) {
   const [letters, setLetters] = useState<any[]>([]);
@@ -48,9 +49,15 @@ export default function Dashboard({ user }: { user: User }) {
 
         // Sort by date manually as they come from different sources
         fetched.sort((a, b) => {
-            const dateA = a.createdAt?.toDate() || 0;
-            const dateB = b.createdAt?.toDate() || 0;
-            return dateB - dateA;
+            const getMs = (l: any) => {
+                if (!l.createdAt) return 0;
+                if (typeof l.createdAt.toDate === 'function') {
+                    try { return l.createdAt.toDate().getTime(); } catch (e) { return 0; }
+                }
+                const d = new Date(l.createdAt);
+                return isNaN(d.getTime()) ? 0 : d.getTime();
+            };
+            return getMs(b) - getMs(a);
         });
 
         setLetters(fetched);
@@ -116,55 +123,86 @@ export default function Dashboard({ user }: { user: User }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           <AnimatePresence>
-            {letters.map((letter) => (
-              <motion.div
-                key={letter.id}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="group relative flex flex-col items-center"
-              >
-                <div className="w-full aspect-[4/3] rounded-[32px] overflow-hidden border border-ink/5 relative shadow-lg group-hover:shadow-2xl transition-all duration-300">
-                    <img 
-                      src={letter.envelopeUrl} 
-                      alt="" 
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-                    
-                    <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
-                        <div className="text-paper">
-                            <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">To: {letter.recipientName || 'Friend'}</p>
-                            <p className="font-serif text-xl italic font-bold">{letter.code}</p>
-                        </div>
-                    </div>
+            {letters.map((letter) => {
+              const sendAtDate = letter.sendAt
+                ? (typeof letter.sendAt.toDate === 'function' ? letter.sendAt.toDate() : new Date(letter.sendAt))
+                : null;
+              const isScheduled = sendAtDate && sendAtDate > new Date();
 
-                    <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <Link 
-                            to={`/letter/${letter.id}`}
-                            className="p-3 bg-white text-ink rounded-full hover:bg-sepia hover:text-paper transition-all shadow-xl"
-                        >
-                            <ExternalLink className="w-5 h-5" />
-                        </Link>
-                        <button 
-                            onClick={() => handleDelete(letter.id, letter.senderId)}
-                            className="p-3 bg-white text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-xl"
-                        >
-                            <Trash2 className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-                
-                <div className="mt-4 text-center">
-                    <div className="flex items-center justify-center gap-2 text-ink/40 text-[10px] font-bold uppercase tracking-widest">
-                        <Calendar className="w-3 h-3" />
-                        <span>{new Date(letter.createdAt?.toDate()).toLocaleDateString()}</span>
-                    </div>
-                </div>
-              </motion.div>
-            ))}
+              return (
+                <motion.div
+                  key={letter.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="group relative flex flex-col items-center"
+                >
+                  <div className="w-full aspect-[4/3] rounded-[32px] overflow-hidden border border-ink/5 relative shadow-lg group-hover:shadow-2xl transition-all duration-300">
+                      <img 
+                        src={letter.envelopeUrl} 
+                        alt="" 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        referrerPolicy="no-referrer"
+                      />
+                      
+                      {isScheduled && (
+                        <div className="absolute top-6 left-6 z-10 px-3 py-1.5 bg-paper/95 backdrop-blur rounded-full shadow-md border border-sepia/25 flex items-center gap-1.5 text-[9px] uppercase font-bold text-sepia tracking-widest">
+                          <Lock className="w-3.5 h-3.5 text-sepia animate-pulse" />
+                          <span>Sealed</span>
+                        </div>
+                      )}
+
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                      
+                      <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
+                          <div className="text-paper">
+                              <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">To: {letter.recipientName || 'Friend'}</p>
+                              <p className="font-serif text-xl italic font-bold">{letter.code}</p>
+                          </div>
+                      </div>
+
+                      <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <Link 
+                              to={`/letter/${letter.id}`}
+                              className="p-3 bg-white text-ink rounded-full hover:bg-sepia hover:text-paper transition-all shadow-xl"
+                          >
+                              <ExternalLink className="w-5 h-5" />
+                          </Link>
+                          <button 
+                              onClick={() => handleDelete(letter.id, letter.senderId)}
+                              className="p-3 bg-white text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-xl"
+                          >
+                              <Trash2 className="w-5 h-5" />
+                          </button>
+                      </div>
+                  </div>
+                  
+                  <div className="mt-4 text-center">
+                      <div className={cn(
+                        "flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest",
+                        isScheduled ? "text-sepia" : "text-ink/40"
+                      )}>
+                          <Calendar className="w-3 h-3" />
+                          <span>
+                            {isScheduled ? 'Unlocks: ' : ''}
+                            {(() => {
+                              const c = isScheduled ? letter.sendAt : letter.createdAt;
+                              if (!c) return 'Recently';
+                              try {
+                                const d = typeof c.toDate === 'function' ? c.toDate() : new Date(c);
+                                if (isNaN(d.getTime())) return 'Recently';
+                                return d.toLocaleDateString();
+                              } catch (err) {
+                                return 'Recently';
+                              }
+                            })()}
+                          </span>
+                      </div>
+                  </div>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
       )}

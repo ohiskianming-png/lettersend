@@ -2,5 +2,7 @@
   "name": "Digital Letterbox",
   "description": "Create and share beautifully crafted digital letters with custom envelope photos, music, and files.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

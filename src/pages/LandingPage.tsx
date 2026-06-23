@@ -1,11 +1,13 @@
 import React from 'react';
 import { Mail, ArrowRight, Share2, Music, Shield } from 'lucide-react';
 import { User } from 'firebase/auth';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { signInWithGoogle } from '../lib/firebase';
 
 export default function LandingPage({ user }: { user: User | null }) {
+  const navigate = useNavigate();
+
   return (
     <div className="pt-24 pb-20">
       {/* Hero Section */}
@@ -25,7 +27,7 @@ export default function LandingPage({ user }: { user: User | null }) {
           <p className="max-w-xl mx-auto text-ink/60 text-lg mb-10 leading-relaxed">
             Craft beautiful digital letters with custom envelopes, curated music, and personal attachments. Send a piece of your soul across the digital void.
           </p>
-
+ 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
               to="/create"
@@ -45,11 +47,7 @@ export default function LandingPage({ user }: { user: User | null }) {
                         if (e.key === 'Enter') {
                             const val = (e.target as HTMLInputElement).value.toUpperCase();
                             if (val) {
-                                // We need a way to find by code. 
-                                // Since codes are unique, we should ideally query.
-                                // I'll redirect to a special 'search' route or just handle it here.
-                                // For now, I'll provide a placeholder alert or implement a small search function.
-                                window.location.href = `/search?code=${val}`;
+                                navigate(`/search?code=${val}`);
                             }
                         }
                     }}
@@ -57,7 +55,7 @@ export default function LandingPage({ user }: { user: User | null }) {
                 <button 
                     onClick={() => {
                         const val = (document.getElementById('code-input') as HTMLInputElement).value.toUpperCase();
-                        if (val) window.location.href = `/search?code=${val}`;
+                        if (val) navigate(`/search?code=${val}`);
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-sepia/10 text-sepia rounded-full flex items-center justify-center hover:bg-sepia hover:text-paper transition-all"
                 >

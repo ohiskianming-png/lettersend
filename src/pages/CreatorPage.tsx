@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, Timestamp, doc, setDoc, getDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles } from 'lucide-react';
+import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import confetti from 'canvas-confetti';
+import { PAPER_TEMPLATES, BORDER_TEMPLATES, getPaperStyle } from '../lib/styles';
+import BorderRenderer from '../components/BorderRenderer';
 
 const ENVELOPE_PRESETS = [
   { id: 'vintage', url: 'https://images.unsplash.com/photo-1586075010633-24451963553a?auto=format&fit=crop&q=80&w=1000', name: 'Vintage' },
@@ -29,6 +31,8 @@ export default function CreatorPage({ user }: { user: User | null }) {
 
   // Form State
   const [content, setContent] = useState('');
+  const [borderStyle, setBorderStyle] = useState('default');
+  const [paperStyle, setPaperStyle] = useState('default');
   const [envelopeUrl, setEnvelopeUrl] = useState(ENVELOPE_PRESETS[0].url);
   const [senderName, setSenderName] = useState(user?.displayName || '');
   const [recipientName, setRecipientName] = useState('');
@@ -37,6 +41,179 @@ export default function CreatorPage({ user }: { user: User | null }) {
   const [fileUrl, setFileUrl] = useState('');
   const [fileName, setFileName] = useState('');
   const [code, setCode] = useState('');
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [sendAt, setSendAt] = useState('');
+
+  // Draft / Autosave State
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [hasPromptedDraft, setHasPromptedDraft] = useState(false);
+  const [draftToRestore, setDraftToRestore] = useState<any | null>(null);
+
+  const draftIdRef = useRef<string | null>(null);
+
+  // Sync ref
+  useEffect(() => {
+    draftIdRef.current = draftId;
+  }, [draftId]);
+
+  // Check for existing draft on mount / user change
+  useEffect(() => {
+    async function checkForDraft() {
+      if (hasPromptedDraft) return;
+
+      try {
+        let foundDraftDoc: any = null;
+        let foundDraftId: string | null = null;
+
+        if (user) {
+          const q = query(
+            collection(db, 'drafts'),
+            where('senderId', '==', user.uid)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            docs.sort((a: any, b: any) => {
+              const dateA = a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : new Date(a.updatedAt).getTime();
+              const dateB = b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : new Date(b.updatedAt).getTime();
+              return dateB - dateA;
+            });
+            foundDraftDoc = docs[0];
+            foundDraftId = docs[0].id;
+          }
+        } else {
+          const anonDraftId = localStorage.getItem('anonymous_draft_id');
+          if (anonDraftId) {
+            const docSnap = await getDoc(doc(db, 'drafts', anonDraftId));
+            if (docSnap.exists()) {
+              foundDraftDoc = { id: docSnap.id, ...docSnap.data() };
+              foundDraftId = docSnap.id;
+            }
+          }
+        }
+
+        if (foundDraftDoc && foundDraftDoc.content) {
+          setDraftToRestore(foundDraftDoc);
+          setDraftId(foundDraftId);
+        }
+        setHasPromptedDraft(true);
+      } catch (err) {
+        console.error("Error checking for draft:", err);
+      }
+    }
+
+    checkForDraft();
+  }, [user, hasPromptedDraft]);
+
+  // Auto-save logic
+  useEffect(() => {
+    if (!content.trim()) {
+      setDraftStatus('idle');
+      return;
+    }
+
+    setDraftStatus('saving');
+
+    const timer = setTimeout(async () => {
+      try {
+        const draftData: any = {
+          content,
+          borderStyle,
+          paperStyle,
+          envelopeUrl,
+          senderName,
+          recipientName,
+          musicUrl,
+          musicTitle,
+          fileUrl,
+          fileName,
+          isScheduled,
+          senderId: user?.uid || null,
+          updatedAt: serverTimestamp()
+        };
+
+        if (isScheduled && sendAt) {
+          draftData.sendAt = Timestamp.fromDate(new Date(sendAt));
+        }
+
+        const activeDraftId = draftIdRef.current;
+
+        if (activeDraftId) {
+          const docRef = doc(db, 'drafts', activeDraftId);
+          await setDoc(docRef, draftData, { merge: true });
+        } else {
+          const docRef = await addDoc(collection(db, 'drafts'), draftData);
+          draftIdRef.current = docRef.id;
+          setDraftId(docRef.id);
+          if (!user) {
+            localStorage.setItem('anonymous_draft_id', docRef.id);
+          }
+        }
+
+        setDraftStatus('saved');
+      } catch (err) {
+        console.error("Auto-save error:", err);
+        setDraftStatus('error');
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [
+    content,
+    borderStyle,
+    paperStyle,
+    envelopeUrl,
+    senderName,
+    recipientName,
+    musicUrl,
+    musicTitle,
+    fileUrl,
+    fileName,
+    isScheduled,
+    sendAt,
+    user
+  ]);
+
+  const restoreDraft = (draft: any) => {
+    if (!draft) return;
+    setContent(draft.content || '');
+    setBorderStyle(draft.borderStyle || 'default');
+    setPaperStyle(draft.paperStyle || 'default');
+    setEnvelopeUrl(draft.envelopeUrl || ENVELOPE_PRESETS[0].url);
+    if (draft.senderName) setSenderName(draft.senderName);
+    setRecipientName(draft.recipientName || '');
+    setMusicUrl(draft.musicUrl || '');
+    setMusicTitle(draft.musicTitle || '');
+    setFileUrl(draft.fileUrl || '');
+    setFileName(draft.fileName || '');
+    if (draft.isScheduled !== undefined) setIsScheduled(draft.isScheduled);
+    if (draft.sendAt) {
+      if (draft.sendAt.toDate) {
+        setSendAt(draft.sendAt.toDate().toISOString().substring(0, 16));
+      } else {
+        setSendAt(new Date(draft.sendAt).toISOString().substring(0, 16));
+      }
+    }
+    if (draft.content) {
+      setStep(2);
+    }
+    setDraftToRestore(null);
+  };
+
+  const discardDraft = async () => {
+    const activeDraftId = draftIdRef.current;
+    if (activeDraftId) {
+      try {
+        await deleteDoc(doc(db, 'drafts', activeDraftId));
+      } catch (err) {
+        console.error("Error deleting dismissed draft:", err);
+      }
+    }
+    setDraftId(null);
+    localStorage.removeItem('anonymous_draft_id');
+    setDraftToRestore(null);
+  };
 
   const generateCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -78,12 +255,22 @@ export default function CreatorPage({ user }: { user: User | null }) {
       return;
     }
 
+    if (isScheduled && sendAt) {
+      const selected = new Date(sendAt);
+      if (selected <= new Date()) {
+        alert('Please schedule your delivery date and time in the future.');
+        return;
+      }
+    }
+
     setLoading(true);
     const letterCode = generateCode();
     
     try {
-      const docRef = await addDoc(collection(db, 'letters'), {
+      const letterData: any = {
         content,
+        borderStyle,
+        paperStyle,
         envelopeUrl: envelopeUrl || ENVELOPE_PRESETS[0].url,
         musicUrl,
         musicTitle: musicTitle || (musicUrl ? 'Background Music' : ''),
@@ -94,7 +281,13 @@ export default function CreatorPage({ user }: { user: User | null }) {
         recipientName: recipientName || 'Friend',
         createdAt: serverTimestamp(),
         code: letterCode,
-      });
+      };
+
+      if (isScheduled && sendAt) {
+        letterData.sendAt = Timestamp.fromDate(new Date(sendAt));
+      }
+
+      const docRef = await addDoc(collection(db, 'letters'), letterData);
 
       // Track locally for non-logged-in users
       const localLetters = JSON.parse(localStorage.getItem('local_letters') || '[]');
@@ -107,6 +300,15 @@ export default function CreatorPage({ user }: { user: User | null }) {
         origin: { y: 0.6 }
       });
 
+      if (draftIdRef.current) {
+        try {
+          await deleteDoc(doc(db, 'drafts', draftIdRef.current));
+        } catch (e) {
+          console.error("Failed to delete draft:", e);
+        }
+      }
+      localStorage.removeItem('anonymous_draft_id');
+
       // Navigate to success state or the letter itself
       navigate(`/letter/${docRef.id}?justCreated=true`);
     } catch (error) {
@@ -118,6 +320,57 @@ export default function CreatorPage({ user }: { user: User | null }) {
 
   return (
     <div className="pt-32 pb-20 px-6 max-w-4xl mx-auto">
+      {/* Draft Restore Overlay / Banner */}
+      <AnimatePresence>
+        {draftToRestore && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mb-8 p-6 rounded-3xl bg-amber-50 border border-amber-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-800 flex-shrink-0 mt-0.5">
+                <Sparkles className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h4 className="font-serif font-bold text-lg text-amber-900">Unsaved Letter Found</h4>
+                <p className="text-sm text-amber-800/80 leading-relaxed mt-0.5">
+                  Would you like to recover your draft created on{' '}
+                  <span className="font-bold underline">
+                    {draftToRestore.updatedAt?.seconds 
+                      ? new Date(draftToRestore.updatedAt.seconds * 1000).toLocaleString()
+                      : new Date(draftToRestore.updatedAt).toLocaleString()
+                    }
+                  </span>?
+                </p>
+                {draftToRestore.content && (
+                  <p className="text-xs text-amber-700 italic mt-1.5 border-l-2 border-amber-300 pl-2 line-clamp-1">
+                    "{draftToRestore.content}"
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 w-full md:w-auto justify-end flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => restoreDraft(draftToRestore)}
+                className="px-5 py-2.5 bg-amber-800 hover:bg-amber-900 active:scale-95 transition-all text-white font-medium text-sm rounded-xl cursor-pointer"
+              >
+                Restore Draft
+              </button>
+              <button
+                type="button"
+                onClick={discardDraft}
+                className="px-4 py-2.5 hover:bg-amber-150 active:scale-95 transition-all text-amber-850 hover:text-amber-900 font-medium text-sm rounded-xl cursor-pointer"
+              >
+                Discard
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex items-center gap-4 mb-12">
         <div className={cn(
           "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500",
@@ -282,32 +535,157 @@ export default function CreatorPage({ user }: { user: User | null }) {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-8"
             >
-              <div>
-                <h2 className="text-4xl font-serif font-bold mb-2">The Message</h2>
-                <p className="text-ink/50">Pour your heart into words. They are the soul of this envelope.</p>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-4xl font-serif font-bold mb-2 text-ink">The Message & Styling</h2>
+                  <p className="text-ink/50">Pour your heart into words and style your parchment to match your words' emotions.</p>
+                </div>
+                <div className="text-xs font-mono text-ink/40 flex items-center gap-2 self-start md:self-end bg-ink/5 px-3.5 py-1.5 rounded-full transition-all">
+                  {draftStatus === 'saving' && (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-sepia" />
+                      <span>Saving draft...</span>
+                    </>
+                  )}
+                  {draftStatus === 'saved' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse animate-duration-1000" />
+                      <span>Draft saved</span>
+                    </>
+                  )}
+                  {draftStatus === 'error' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      <span>Saving error</span>
+                    </>
+                  )}
+                  {draftStatus === 'idle' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
+                      <span>Ready</span>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <textarea
-                autoFocus
-                placeholder="Write your message here..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="w-full h-64 px-8 py-8 rounded-3xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all font-serif text-xl leading-relaxed resize-none italic"
-              />
+              <div className="grid lg:grid-cols-12 gap-8 items-start">
+                {/* Live Parchment Paper Column */}
+                <div className="lg:col-span-7 xl:col-span-8">
+                  <div 
+                    className="w-full rounded-[40px] shadow-xl relative overflow-hidden transition-all duration-300 min-h-[500px] flex flex-col justify-between border border-ink/5"
+                    style={getPaperStyle(paperStyle).bgStyle}
+                  >
+                    {/* Render matching border overlay */}
+                    <BorderRenderer borderId={borderStyle} />
 
-              <div className="flex justify-between">
+                    {/* Letter Content area */}
+                    <div className="p-8 md:p-12 relative z-10 flex-grow flex flex-col">
+                      {/* Recipient Greeting or dynamic meta */}
+                      <div className={cn("text-lg font-serif mb-4 transition-colors", getPaperStyle(paperStyle).textClass)}>
+                        Dear <span className="font-bold underline decoration-dotted decoration-sepia/40">{recipientName || 'Friend'}</span>,
+                      </div>
+
+                      {/* Transparent, perfectly aligned textarea */}
+                      <textarea
+                        autoFocus
+                        placeholder="Write your secret notes or warm wishes here... Your words will follow the parchment's visual style."
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        className={cn(
+                          "w-full flex-grow focus:outline-none focus:ring-0 border-none bg-transparent resize-none leading-relaxed text-lg md:text-xl italic font-serif",
+                          getPaperStyle(paperStyle).textClass
+                        )}
+                        style={{ minHeight: '300px' }}
+                      />
+
+                      {/* Signature line mirroring final view */}
+                      <div className={cn("mt-8 pt-6 border-t flex flex-col items-end", getPaperStyle(paperStyle).hrClass || "border-ink/5")}>
+                        <p className={cn("text-xs uppercase tracking-widest opacity-40 mb-1", getPaperStyle(paperStyle).textClass)}>Respectfully,</p>
+                        <p className={cn("font-serif text-2xl italic", getPaperStyle(paperStyle).titleClass)}>{senderName || 'Someone'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Style Customization Panels Column */}
+                <div className="lg:col-span-5 xl:col-span-4 space-y-6">
+                  {/* Parchment Paper Preset Picker */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Parchment Style</span>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                      {PAPER_TEMPLATES.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setPaperStyle(p.id)}
+                          className={cn(
+                            "w-full p-3.5 rounded-2xl border text-left flex items-center gap-3.5 transition-all cursor-pointer",
+                            paperStyle === p.id 
+                              ? "border-sepia bg-sepia/5 ring-1 ring-sepia" 
+                              : "border-ink/5 hover:border-ink/20 bg-paper/30"
+                          )}
+                        >
+                          {/* Circular color sample with internal mini pattern */}
+                          <div 
+                            className="w-10 h-10 rounded-full border border-ink/10 flex-shrink-0 shadow-sm"
+                            style={p.bgStyle}
+                          />
+                          <div className="min-w-0">
+                            <p className="font-serif font-bold text-sm text-ink leading-tight">{p.name}</p>
+                            <p className="text-[11px] text-ink/40 line-clamp-1">{p.description}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Border Style Picker */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Double Frame Border</span>
+                    <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
+                      {BORDER_TEMPLATES.map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => setBorderStyle(b.id)}
+                          className={cn(
+                            "p-3 rounded-2xl border text-left flex flex-col lg:flex-row lg:items-center gap-2 transition-all cursor-pointer",
+                            borderStyle === b.id 
+                              ? "border-sepia bg-sepia/5 ring-1 ring-sepia" 
+                              : "border-ink/5 hover:border-ink/20 bg-paper/30"
+                          )}
+                        >
+                          {/* Dynamic border mini frame visualizer */}
+                          <div className={cn("w-10 h-7 rounded bg-paper flex-shrink-0 flex items-center justify-center border border-dashed text-[8px] text-ink/30 relative overflow-hidden", b.previewBorder)}>
+                            {b.id === 'default' ? 'Plain' : ''}
+                          </div>
+                          <div>
+                            <p className="font-serif font-bold text-xs text-ink leading-tight">{b.name}</p>
+                            <p className="text-[10px] text-ink/40 line-clamp-1 hidden lg:block">{b.description}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Actions */}
+              <div className="flex justify-between pt-6 border-t border-ink/5">
                 <button
+                  type="button"
                   onClick={() => setStep(1)}
                   className="px-8 py-3 text-ink/60 font-medium hover:text-ink transition-colors"
                 >
                   Back
                 </button>
                 <button
+                  type="button"
                   disabled={!content}
                   onClick={() => setStep(3)}
-                  className="px-8 py-3 bg-sepia text-paper rounded-full font-medium hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                  className="px-8 py-3 bg-sepia text-paper rounded-full font-medium hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  Add Media
+                  Add Media & Seal
                 </button>
               </div>
             </motion.div>
@@ -433,6 +811,78 @@ export default function CreatorPage({ user }: { user: User | null }) {
                   </div>
                 </div>
               </div>
+
+              <div className="h-[1px] bg-ink/5" />
+
+              {/* Delivery Schedule Section */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xl font-serif font-bold flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-sepia" />
+                      <span>Delivery Schedule</span>
+                  </h3>
+                  <p className="text-xs text-ink/40 mt-1">Control precisely when your recipient will be allowed to open this digital letter.</p>
+                </div>
+
+                <div className="bg-paper border border-ink/5 rounded-3xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Schedule for future delivery</p>
+                      <p className="text-xs text-ink/50">Keep this letter locked until the selected date and time.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsScheduled(!isScheduled);
+                        if (!isScheduled && !sendAt) {
+                          // Default to tomorrow
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          tomorrow.setMinutes(tomorrow.getMinutes() - tomorrow.getTimezoneOffset());
+                          setSendAt(tomorrow.toISOString().slice(0, 16));
+                        }
+                      }}
+                      className={cn(
+                        "w-12 h-6 rounded-full p-1 transition-colors duration-200 focus:outline-none",
+                        isScheduled ? "bg-sepia" : "bg-ink/10"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "w-4 h-4 rounded-full bg-paper shadow-md transform transition-transform duration-200",
+                          isScheduled ? "translate-x-6" : "translate-x-0"
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  {isScheduled && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="pt-4 border-t border-ink/5 space-y-3 overflow-hidden"
+                    >
+                      <label className="block">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Delivery Date & Time</span>
+                        <input
+                          type="datetime-local"
+                          value={sendAt}
+                          onChange={(e) => setSendAt(e.target.value)}
+                          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                          className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm font-mono text-ink"
+                          required
+                        />
+                      </label>
+                      <p className="text-xs text-sepia italic font-serif">
+                        This letter will remain tightly sealed and unreadable until this date.
+                      </p>
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-[1px] bg-ink/5" />
 
               <div className="p-6 rounded-3xl bg-sepia/5 border border-sepia/10 flex items-start gap-4">
                 <div className="w-10 h-10 bg-sepia/20 text-sepia rounded-xl flex items-center justify-center shrink-0">

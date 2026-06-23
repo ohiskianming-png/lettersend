@@ -41,6 +41,11 @@
           "type": "string",
           "description": "Display name of the recipient."
         },
+        "sendAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Scheduled delivery time of the letter (optional)."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -49,6 +54,14 @@
         "code": {
           "type": "string",
           "description": "Unique short code for accessing the letter."
+        },
+        "borderStyle": {
+          "type": "string",
+          "description": "Selected decorative border template ID (optional)."
+        },
+        "paperStyle": {
+          "type": "string",
+          "description": "Selected paper texture template ID (optional)."
         }
       },
       "required": ["content", "envelopeUrl", "senderId", "createdAt", "code"]

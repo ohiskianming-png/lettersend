@@ -20,7 +20,7 @@ service cloud.firestore {
 
     function isValidLetter(data) {
       return data.keys().hasAll(['content', 'envelopeUrl', 'createdAt', 'code']) &&
-             data.keys().size() <= 12 &&
+             data.keys().size() <= 15 &&
              data.content is string && data.content.size() <= 10000 &&
              data.envelopeUrl is string && data.envelopeUrl.size() <= 2000 &&
              data.createdAt == request.time &&
@@ -31,7 +31,10 @@ service cloud.firestore {
              (data.get('musicUrl', '') is string && data.get('musicUrl', '').size() <= 2000) &&
              (data.get('musicTitle', '') is string && data.get('musicTitle', '').size() <= 200) &&
              (data.get('fileUrl', '') is string && data.get('fileUrl', '').size() <= 2000) &&
-             (data.get('fileName', '') is string && data.get('fileName', '').size() <= 200);
+             (data.get('fileName', '') is string && data.get('fileName', '').size() <= 200) &&
+             (data.get('borderStyle', '') is string && data.get('borderStyle', '').size() <= 100) &&
+             (data.get('paperStyle', '') is string && data.get('paperStyle', '').size() <= 100) &&
+             (data.get('sendAt', null) == null || data.sendAt is timestamp);
     }
 
     // Default deny
@@ -44,6 +47,11 @@ service cloud.firestore {
       allow list: if (isSignedIn() && resource.data.senderId == request.auth.uid) || true; // We'll handle local filtering in client for anon
       allow create: if (isSignedIn() || true) && isValidLetter(incoming()) && isValidId(letterId);
       allow delete: if isSignedIn() && existing().senderId == request.auth.uid;
+    }
+
+    match /drafts/{draftId} {
+      allow get, list, delete: if true;
+      allow create, update: if (isSignedIn() || true) && isValidId(draftId);
     }
   }
 }

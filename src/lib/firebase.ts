@@ -8,7 +8,20 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth();
 export const googleProvider = new GoogleAuthProvider();
 
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
+export const signInWithGoogle = async () => {
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (error: any) {
+    console.error("Google Sign In Error:", error);
+    if (error?.code === 'auth/popup-blocked' || error?.message?.includes('popup')) {
+      alert("Popup was blocked by your browser or the preview iframe sandbox. Please open the app in a new tab (click the icon in the top right of the preview) to sign in with Google.");
+    } else if (error?.code === 'auth/cancelled-popup-request') {
+      // Ignored: popup was cancelled by user
+    } else {
+      alert(`Sign in failed: ${error?.message || error}`);
+    }
+  }
+};
 
 export enum OperationType {
   CREATE = 'create',
