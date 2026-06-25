@@ -62,6 +62,30 @@
         "paperStyle": {
           "type": "string",
           "description": "Selected paper texture template ID (optional)."
+        },
+        "fontStyle": {
+          "type": "string",
+          "description": "Selected decorative typography style ID (optional)."
+        },
+        "waxSealColor": {
+          "type": "string",
+          "description": "Selected wax color for envelope seal (optional)."
+        },
+        "waxSealSymbol": {
+          "type": "string",
+          "description": "Selected insignia emblem for wax seal (optional)."
+        },
+        "hasPasscode": {
+          "type": "boolean",
+          "description": "Whether the letter requires a secret passcode / answer (optional)."
+        },
+        "passcode": {
+          "type": "string",
+          "description": "Answer / passcode to unlock the letter."
+        },
+        "passcodeHint": {
+          "type": "string",
+          "description": "Security question or clue displayed to the recipient."
         }
       },
       "required": ["content", "envelopeUrl", "senderId", "createdAt", "code"]

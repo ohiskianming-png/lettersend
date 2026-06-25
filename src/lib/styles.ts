@@ -176,3 +176,48 @@ export function getPaperStyle(id: string | undefined): PaperTemplate {
 export function getBorderStyle(id: string | undefined): BorderTemplate {
   return BORDER_TEMPLATES.find(b => b.id === id) || BORDER_TEMPLATES[0];
 }
+
+export interface FontTemplate {
+  id: string;
+  name: string;
+  className: string;
+  description: string;
+}
+
+export const FONT_TEMPLATES: FontTemplate[] = [
+  {
+    id: 'serif',
+    name: 'Classic Calligraphy',
+    className: 'font-serif text-lg md:text-xl leading-relaxed italic',
+    description: 'Traditional Elegant Cormorant Serif'
+  },
+  {
+    id: 'handwritten',
+    name: 'Romantic Handwriting',
+    className: 'font-handwritten text-3xl md:text-4xl leading-relaxed',
+    description: 'Beautiful flowing cursive script'
+  },
+  {
+    id: 'typewriter',
+    name: 'Vintage Typewriter',
+    className: 'font-typewriter text-sm md:text-base leading-relaxed tracking-tight',
+    description: 'Nostalgic mechanical keys style'
+  },
+  {
+    id: 'royal',
+    name: 'Royal Capitalized',
+    className: 'font-royal text-sm md:text-md uppercase tracking-widest leading-loose',
+    description: 'Majestic ancient roman font'
+  },
+  {
+    id: 'display',
+    name: 'Modern Dramatic',
+    className: 'font-display text-xl md:text-2xl leading-relaxed tracking-wide italic font-light',
+    description: 'High-contrast modern editorial serif'
+  }
+];
+
+export function getFontClass(id: string | undefined): string {
+  return FONT_TEMPLATES.find(f => f.id === id)?.className || FONT_TEMPLATES[0].className;
+}
+

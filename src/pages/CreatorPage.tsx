@@ -3,11 +3,11 @@ import { User } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, Timestamp, doc, setDoc, getDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles, Calendar } from 'lucide-react';
+import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles, Calendar, Award, Lock, Unlock, Key, PenTool, HelpCircle, Type, Crown, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import confetti from 'canvas-confetti';
-import { PAPER_TEMPLATES, BORDER_TEMPLATES, getPaperStyle } from '../lib/styles';
+import { PAPER_TEMPLATES, BORDER_TEMPLATES, getPaperStyle, FONT_TEMPLATES, getFontClass } from '../lib/styles';
 import BorderRenderer from '../components/BorderRenderer';
 
 const ENVELOPE_PRESETS = [
@@ -24,15 +24,39 @@ const MUSIC_PRESETS = [
   { id: 'nostalgic', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', name: 'Vintage Nostalgia', title: 'Old Records' },
 ];
 
+const WAX_COLORS = [
+  { id: 'crimson', hex: '#991b1b', name: 'Imperial Crimson', bg: 'bg-red-800', border: 'border-red-950/20' },
+  { id: 'gold', hex: '#b45309', name: 'Antique Gold', bg: 'bg-amber-700', border: 'border-amber-950/20' },
+  { id: 'forest', hex: '#166534', name: 'Forest Moss', bg: 'bg-emerald-800', border: 'border-emerald-950/20' },
+  { id: 'midnight', hex: '#1e3a8a', name: 'Midnight Velvet', bg: 'bg-blue-950', border: 'border-blue-950/20' },
+  { id: 'rose', hex: '#db2777', name: 'Rose Petal', bg: 'bg-pink-700', border: 'border-pink-950/20' },
+  { id: 'purple', hex: '#6b21a8', name: 'Royal Amethyst', bg: 'bg-purple-900', border: 'border-purple-950/20' }
+];
+
+const WAX_SYMBOLS = [
+  { id: 'heart', name: 'Eternal Heart', icon: Heart },
+  { id: 'star', name: 'Guiding Star', icon: Sparkles },
+  { id: 'crown', name: 'Royal Crown', icon: Crown },
+  { id: 'key', name: 'Secret Key', icon: Key },
+  { id: 'rose', name: 'Enchanted Rose', icon: Award },
+  { id: 'feather', name: 'Scholar Quill', icon: PenTool }
+];
+
 export default function CreatorPage({ user }: { user: User | null }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState(1); // 1: Envelope, 2: Message, 3: Music & Files
+  const [step, setStep] = useState(1); // 1: Envelope, 2: Message, 3: Wax Seal, 4: Security & Music
 
   // Form State
   const [content, setContent] = useState('');
   const [borderStyle, setBorderStyle] = useState('default');
   const [paperStyle, setPaperStyle] = useState('default');
+  const [fontStyle, setFontStyle] = useState('serif');
+  const [waxSealColor, setWaxSealColor] = useState('crimson');
+  const [waxSealSymbol, setWaxSealSymbol] = useState('heart');
+  const [hasPasscode, setHasPasscode] = useState(false);
+  const [passcode, setPasscode] = useState('');
+  const [passcodeHint, setPasscodeHint] = useState('');
   const [envelopeUrl, setEnvelopeUrl] = useState(ENVELOPE_PRESETS[0].url);
   const [senderName, setSenderName] = useState(user?.displayName || '');
   const [recipientName, setRecipientName] = useState('');
@@ -121,6 +145,12 @@ export default function CreatorPage({ user }: { user: User | null }) {
           content,
           borderStyle,
           paperStyle,
+          fontStyle,
+          waxSealColor,
+          waxSealSymbol,
+          hasPasscode,
+          passcode,
+          passcodeHint,
           envelopeUrl,
           senderName,
           recipientName,
@@ -163,6 +193,12 @@ export default function CreatorPage({ user }: { user: User | null }) {
     content,
     borderStyle,
     paperStyle,
+    fontStyle,
+    waxSealColor,
+    waxSealSymbol,
+    hasPasscode,
+    passcode,
+    passcodeHint,
     envelopeUrl,
     senderName,
     recipientName,
@@ -180,6 +216,12 @@ export default function CreatorPage({ user }: { user: User | null }) {
     setContent(draft.content || '');
     setBorderStyle(draft.borderStyle || 'default');
     setPaperStyle(draft.paperStyle || 'default');
+    if (draft.fontStyle) setFontStyle(draft.fontStyle);
+    if (draft.waxSealColor) setWaxSealColor(draft.waxSealColor);
+    if (draft.waxSealSymbol) setWaxSealSymbol(draft.waxSealSymbol);
+    if (draft.hasPasscode !== undefined) setHasPasscode(draft.hasPasscode);
+    if (draft.passcode) setPasscode(draft.passcode);
+    if (draft.passcodeHint) setPasscodeHint(draft.passcodeHint);
     setEnvelopeUrl(draft.envelopeUrl || ENVELOPE_PRESETS[0].url);
     if (draft.senderName) setSenderName(draft.senderName);
     setRecipientName(draft.recipientName || '');
@@ -271,6 +313,12 @@ export default function CreatorPage({ user }: { user: User | null }) {
         content,
         borderStyle,
         paperStyle,
+        fontStyle,
+        waxSealColor,
+        waxSealSymbol,
+        hasPasscode,
+        passcode,
+        passcodeHint,
         envelopeUrl: envelopeUrl || ENVELOPE_PRESETS[0].url,
         musicUrl,
         musicTitle: musicTitle || (musicUrl ? 'Background Music' : ''),
@@ -382,7 +430,7 @@ export default function CreatorPage({ user }: { user: User | null }) {
           <motion.div 
             className="absolute inset-0 bg-sepia origin-left"
             initial={{ scaleX: 0 }}
-            animate={{ scaleX: (step - 1) / 2 }}
+            animate={{ scaleX: step >= 2 ? 1 : 0 }}
           />
         </div>
         <div className={cn(
@@ -392,17 +440,30 @@ export default function CreatorPage({ user }: { user: User | null }) {
           <Mail className="w-6 h-6" />
         </div>
         <div className="h-[2px] flex-1 bg-ink/5 relative">
-            <motion.div 
-                className="absolute inset-0 bg-sepia origin-left"
-                initial={{ scaleX: 0 }}
-                animate={{ scaleX: step === 3 ? 1 : 0 }}
-            />
+          <motion.div 
+            className="absolute inset-0 bg-sepia origin-left"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: step >= 3 ? 1 : 0 }}
+          />
         </div>
         <div className={cn(
           "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500",
-          step === 3 ? "bg-sepia text-paper" : "bg-ink/5 text-ink/20"
+          step === 3 ? "bg-sepia text-paper" : (step > 3 ? "bg-sepia/10 text-sepia" : "bg-ink/5 text-ink/20")
         )}>
-          <Music className="w-6 h-6" />
+          <Award className="w-6 h-6" />
+        </div>
+        <div className="h-[2px] flex-1 bg-ink/5 relative">
+          <motion.div 
+            className="absolute inset-0 bg-sepia origin-left"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: step === 4 ? 1 : 0 }}
+          />
+        </div>
+        <div className={cn(
+          "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500",
+          step === 4 ? "bg-sepia text-paper" : "bg-ink/5 text-ink/20"
+        )}>
+          <Lock className="w-6 h-6" />
         </div>
       </div>
 
@@ -592,7 +653,8 @@ export default function CreatorPage({ user }: { user: User | null }) {
                         value={content}
                         onChange={(e) => setContent(e.target.value)}
                         className={cn(
-                          "w-full flex-grow focus:outline-none focus:ring-0 border-none bg-transparent resize-none leading-relaxed text-lg md:text-xl italic font-serif",
+                          "w-full flex-grow focus:outline-none focus:ring-0 border-none bg-transparent resize-none",
+                          getFontClass(fontStyle),
                           getPaperStyle(paperStyle).textClass
                         )}
                         style={{ minHeight: '300px' }}
@@ -612,7 +674,7 @@ export default function CreatorPage({ user }: { user: User | null }) {
                   {/* Parchment Paper Preset Picker */}
                   <div className="space-y-3">
                     <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Parchment Style</span>
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {PAPER_TEMPLATES.map((p) => (
                         <button
                           key={p.id}
@@ -634,6 +696,31 @@ export default function CreatorPage({ user }: { user: User | null }) {
                             <p className="font-serif font-bold text-sm text-ink leading-tight">{p.name}</p>
                             <p className="text-[11px] text-ink/40 line-clamp-1">{p.description}</p>
                           </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Calligraphy Font Picker */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Calligraphy Font</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {FONT_TEMPLATES.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setFontStyle(f.id)}
+                          className={cn(
+                            "p-3 rounded-2xl border text-left flex flex-col gap-1 transition-all cursor-pointer",
+                            fontStyle === f.id 
+                              ? "border-sepia bg-sepia/5 ring-1 ring-sepia" 
+                              : "border-ink/5 hover:border-ink/20 bg-paper/30"
+                          )}
+                        >
+                          <span className={cn("text-base font-bold leading-tight block truncate", f.className.split(' ')[0])}>
+                            Style {f.name.split(' ')[0]}
+                          </span>
+                          <span className="text-[9px] text-ink/40 line-clamp-1">{f.name}</span>
                         </button>
                       ))}
                     </div>
@@ -685,7 +772,7 @@ export default function CreatorPage({ user }: { user: User | null }) {
                   onClick={() => setStep(3)}
                   className="px-8 py-3 bg-sepia text-paper rounded-full font-medium hover:scale-105 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  Add Media & Seal
+                  Craft Wax Seal
                 </button>
               </div>
             </motion.div>
@@ -700,70 +787,281 @@ export default function CreatorPage({ user }: { user: User | null }) {
               className="space-y-8"
             >
               <div>
-                <h2 className="text-4xl font-serif font-bold mb-2">Final Touches</h2>
-                <p className="text-ink/50">Add music and attachments to complete the experience.</p>
+                <h2 className="text-4xl font-serif font-bold mb-2">Craft Your Wax Seal</h2>
+                <p className="text-ink/50">Melt a custom wax seal and select an insignia stamp. This is the visual seal your recipient must break to open your letter.</p>
               </div>
 
-              <div className="space-y-12">
+              <div className="grid md:grid-cols-12 gap-8 items-center bg-paper/20 p-8 rounded-3xl border border-ink/5 shadow-sm">
+                {/* Visualizer Column */}
+                <div className="md:col-span-5 flex flex-col items-center justify-center py-6">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-6">Live Seal Preview</span>
+                  
+                  {/* Outer melting ring */}
+                  <div className="relative w-44 h-44 flex items-center justify-center">
+                    {/* Shadow layer */}
+                    <div className="absolute inset-2 bg-black/30 rounded-full blur-md" />
+                    
+                    {/* Outer organic drippy layer */}
+                    <div className={cn(
+                      "absolute inset-0 rounded-full transition-all duration-500 opacity-90 scale-95",
+                      WAX_COLORS.find(c => c.id === waxSealColor)?.bg || 'bg-red-800'
+                    )} style={{ borderRadius: '48% 52% 51% 49% / 51% 49% 52% 48%' }} />
+                    
+                    {/* Second organic layer for drip depth */}
+                    <div className={cn(
+                      "absolute inset-1.5 rounded-full transition-all duration-500 opacity-95 rotate-45 scale-95",
+                      WAX_COLORS.find(c => c.id === waxSealColor)?.bg || 'bg-red-800'
+                    )} style={{ borderRadius: '52% 48% 49% 51% / 49% 51% 48% 52%' }} />
+
+                    {/* Stamped central circle */}
+                    <div className={cn(
+                      "w-32 h-32 rounded-full flex items-center justify-center relative shadow-inner border border-white/15 transition-all duration-500 scale-95",
+                      WAX_COLORS.find(c => c.id === waxSealColor)?.bg || 'bg-red-800'
+                    )}>
+                      {/* Inner pressed ridge */}
+                      <div className="absolute inset-2.5 rounded-full border border-dashed border-black/25 flex items-center justify-center">
+                        {/* Stamped Symbol */}
+                        {(() => {
+                          const ActiveIcon = WAX_SYMBOLS.find(s => s.id === waxSealSymbol)?.icon || Heart;
+                          return (
+                            <ActiveIcon 
+                              className="w-14 h-14 text-white/70 drop-shadow-[0_-1.5px_1px_rgba(0,0,0,0.6)]" 
+                              style={{ filter: 'drop-shadow(0px 2px 2px rgba(0,0,0,0.45))' }}
+                            />
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-ink/40 mt-6 italic font-serif">
+                    Stamped with {WAX_SYMBOLS.find(s => s.id === waxSealSymbol)?.name}
+                  </p>
+                </div>
+
+                {/* Selection Controls Column */}
+                <div className="md:col-span-7 space-y-6">
+                  {/* Wax Color Picker */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Select Wax Color</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {WAX_COLORS.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setWaxSealColor(c.id)}
+                          className={cn(
+                            "p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all cursor-pointer",
+                            waxSealColor === c.id 
+                              ? "border-sepia bg-sepia/5 ring-1 ring-sepia" 
+                              : "border-ink/5 hover:border-ink/10 bg-white"
+                          )}
+                        >
+                          <div className={cn("w-4 h-4 rounded-full shadow-sm", c.bg)} />
+                          <span className="text-xs font-serif font-bold text-ink truncate leading-none">{c.name.split(' ')[1] || c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Insignia Symbol Picker */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-ink/40 block">Choose Stamping Emblem</span>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {WAX_SYMBOLS.map((s) => {
+                        const IconComponent = s.icon;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setWaxSealSymbol(s.id)}
+                            className={cn(
+                              "p-3 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer",
+                              waxSealSymbol === s.id 
+                                ? "border-sepia bg-sepia/5 ring-1 ring-sepia" 
+                                : "border-ink/5 hover:border-ink/10 bg-white"
+                            )}
+                          >
+                            <IconComponent className="w-4 h-4 text-sepia" />
+                            <span className="text-xs font-sans font-medium text-ink/80 leading-none">{s.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Actions */}
+              <div className="flex justify-between pt-6 border-t border-ink/5">
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="px-8 py-3 text-ink/60 font-medium hover:text-ink transition-colors"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep(4)}
+                  className="px-8 py-3 bg-sepia text-paper rounded-full font-medium hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                >
+                  Configure Delivery & Security
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 4 && (
+            <motion.div
+              key="step4"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <div>
+                <h2 className="text-4xl font-serif font-bold mb-2">Delivery & Security</h2>
+                <p className="text-ink/50">Add soundscapes, file attachments, scheduling, and set custom riddle passcode locks.</p>
+              </div>
+
+              <div className="space-y-8">
+                {/* Riddle Passcode Security Option */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-serif font-bold flex items-center gap-2">
+                    <Lock className="w-5 h-5 text-sepia" />
+                    <span>Riddle Lock & Security (Optional)</span>
+                  </h3>
+                  <p className="text-xs text-ink/40">Protect your letter with a secret passcode, or a personalized riddle question only your recipient knows the answer to.</p>
+
+                  <div className="bg-paper border border-ink/5 rounded-3xl p-6 space-y-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">Enable Security Gate</p>
+                        <p className="text-xs text-ink/50">Recipient must answer your riddle to break the wax seal.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHasPasscode(!hasPasscode);
+                          if (!hasPasscode) {
+                            setPasscode('');
+                            setPasscodeHint('');
+                          }
+                        }}
+                        className={cn(
+                          "w-12 h-6 rounded-full p-1 transition-colors duration-200 focus:outline-none cursor-pointer",
+                          hasPasscode ? "bg-sepia" : "bg-ink/10"
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "w-4 h-4 rounded-full bg-paper shadow-md transform transition-transform duration-200",
+                            hasPasscode ? "translate-x-6" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {hasPasscode && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="pt-4 border-t border-ink/5 space-y-4 overflow-hidden"
+                      >
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <label className="block">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Security Question / Riddle Clue</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Where did we share our very first coffee?"
+                              value={passcodeHint}
+                              onChange={(e) => setPasscodeHint(e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl bg-white border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
+                              required={hasPasscode}
+                            />
+                          </label>
+
+                          <label className="block">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">The Answer / Passcode</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Blue Bottle (case-insensitive)"
+                              value={passcode}
+                              onChange={(e) => setPasscode(e.target.value)}
+                              className="w-full px-4 py-3 rounded-xl bg-white border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
+                              required={hasPasscode}
+                            />
+                          </label>
+                        </div>
+                        <p className="text-[11px] text-sepia italic font-serif">
+                          Tip: Keep the answer simple and descriptive. The verification will trim extra spaces and ignore upper/lower casing!
+                        </p>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="h-[1px] bg-ink/5" />
+
                 {/* Music Section */}
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-xl font-serif font-bold flex items-center gap-2">
-                        <Music className="w-5 h-5 text-sepia" />
-                        <span>Background Music</span>
+                      <Music className="w-5 h-5 text-sepia" />
+                      <span>Background Music (Optional)</span>
                     </h3>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {MUSIC_PRESETS.map((m) => (
-                            <button
-                                key={m.id}
-                                onClick={() => {
-                                    setMusicUrl(m.url);
-                                    setMusicTitle(m.title);
-                                }}
-                                className={cn(
-                                    "p-4 rounded-2xl border-2 transition-all text-left space-y-1",
-                                    musicUrl === m.url ? "border-sepia bg-sepia/5" : "border-ink/5 hover:border-ink/10"
-                                )}
-                            >
-                                <p className="text-xs font-bold uppercase tracking-widest text-ink/40 leading-none">{m.name}</p>
-                                <p className="text-[10px] text-sepia font-serif italic truncate">{m.title}</p>
-                            </button>
-                        ))}
+                    {MUSIC_PRESETS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setMusicUrl(m.url);
+                          setMusicTitle(m.title);
+                        }}
+                        className={cn(
+                          "p-4 rounded-2xl border-2 transition-all text-left space-y-1 cursor-pointer",
+                          musicUrl === m.url ? "border-sepia bg-sepia/5" : "border-ink/5 hover:border-ink/10 bg-white"
+                        )}
+                      >
+                        <p className="text-xs font-bold uppercase tracking-widest text-ink/40 leading-none">{m.name}</p>
+                        <p className="text-[10px] text-sepia font-serif italic truncate">{m.title}</p>
+                      </button>
+                    ))}
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-6 items-end">
                     <div className="space-y-4">
-                        <label className="block">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Custom MP3 URL</span>
-                            <div className="relative">
-                                <input
-                                    type="url"
-                                    placeholder="https://..."
-                                    value={musicUrl.startsWith('data:') ? '' : musicUrl}
-                                    onChange={(e) => setMusicUrl(e.target.value)}
-                                    className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
-                                />
-                            </div>
-                        </label>
+                      <label className="block">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Custom MP3 URL</span>
                         <input
-                            type="text"
-                            placeholder="Music Track Name"
-                            value={musicTitle}
-                            onChange={(e) => setMusicTitle(e.target.value)}
-                            className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 text-sm"
+                          type="url"
+                          placeholder="https://..."
+                          value={musicUrl.startsWith('data:') ? '' : musicUrl}
+                          onChange={(e) => setMusicUrl(e.target.value)}
+                          className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
                         />
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Music Track Name"
+                        value={musicTitle}
+                        onChange={(e) => setMusicTitle(e.target.value)}
+                        className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 text-sm"
+                      />
                     </div>
                     
                     <div className="space-y-2">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-ink/30 text-center">Or Upload Small MP3</p>
-                        <input
-                            type="file"
-                            accept="audio/*"
-                            onChange={(e) => handleFileUpload(e, 'music')}
-                            className="block w-full text-[10px] text-ink/40 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-sepia/10 file:text-sepia hover:file:bg-sepia/20 transition-all cursor-pointer"
-                        />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-ink/30 text-center">Or Upload Small MP3</p>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => handleFileUpload(e, 'music')}
+                        className="block w-full text-[10px] text-ink/40 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-sepia/10 file:text-sepia hover:file:bg-sepia/20 transition-all cursor-pointer"
+                      />
                     </div>
                   </div>
                 </div>
@@ -774,137 +1072,125 @@ export default function CreatorPage({ user }: { user: User | null }) {
                 <div className="space-y-6">
                   <div>
                     <h3 className="text-xl font-serif font-bold flex items-center gap-2">
-                        <Paperclip className="w-5 h-5 text-sepia" />
-                        <span>Attachments</span>
+                      <Paperclip className="w-5 h-5 text-sepia" />
+                      <span>Attachments (Optional)</span>
                     </h3>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-6 items-end">
                     <div className="space-y-4">
-                        <label className="block">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">File URL</span>
-                            <input
-                                type="url"
-                                placeholder="https://..."
-                                value={fileUrl.startsWith('data:') ? '' : fileUrl}
-                                onChange={(e) => setFileUrl(e.target.value)}
-                                className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
-                            />
-                        </label>
+                      <label className="block">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">File URL</span>
                         <input
-                            type="text"
-                            placeholder="Display Name (e.g. For You.pdf)"
-                            value={fileName}
-                            onChange={(e) => setFileName(e.target.value)}
-                            className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 text-sm"
+                          type="url"
+                          placeholder="https://..."
+                          value={fileUrl.startsWith('data:') ? '' : fileUrl}
+                          onChange={(e) => setFileUrl(e.target.value)}
+                          className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm"
                         />
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Display Name (e.g. For You.pdf)"
+                        value={fileName}
+                        onChange={(e) => setFileName(e.target.value)}
+                        className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 text-sm"
+                      />
                     </div>
 
                     <div className="space-y-2">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-ink/30 text-center">Or Upload Small File</p>
-                        <input
-                            type="file"
-                            onChange={(e) => handleFileUpload(e, 'file')}
-                            className="block w-full text-[10px] text-ink/40 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-sepia/10 file:text-sepia hover:file:bg-sepia/20 transition-all cursor-pointer"
-                        />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="h-[1px] bg-ink/5" />
-
-              {/* Delivery Schedule Section */}
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-serif font-bold flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-sepia" />
-                      <span>Delivery Schedule</span>
-                  </h3>
-                  <p className="text-xs text-ink/40 mt-1">Control precisely when your recipient will be allowed to open this digital letter.</p>
-                </div>
-
-                <div className="bg-paper border border-ink/5 rounded-3xl p-6 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-ink">Schedule for future delivery</p>
-                      <p className="text-xs text-ink/50">Keep this letter locked until the selected date and time.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsScheduled(!isScheduled);
-                        if (!isScheduled && !sendAt) {
-                          // Default to tomorrow
-                          const tomorrow = new Date();
-                          tomorrow.setDate(tomorrow.getDate() + 1);
-                          tomorrow.setMinutes(tomorrow.getMinutes() - tomorrow.getTimezoneOffset());
-                          setSendAt(tomorrow.toISOString().slice(0, 16));
-                        }
-                      }}
-                      className={cn(
-                        "w-12 h-6 rounded-full p-1 transition-colors duration-200 focus:outline-none",
-                        isScheduled ? "bg-sepia" : "bg-ink/10"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "w-4 h-4 rounded-full bg-paper shadow-md transform transition-transform duration-200",
-                          isScheduled ? "translate-x-6" : "translate-x-0"
-                        )}
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-ink/30 text-center">Or Upload Small File</p>
+                      <input
+                        type="file"
+                        onChange={(e) => handleFileUpload(e, 'file')}
+                        className="block w-full text-[10px] text-ink/40 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-sepia/10 file:text-sepia hover:file:bg-sepia/20 transition-all cursor-pointer"
                       />
-                    </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-[1px] bg-ink/5" />
+
+                {/* Delivery Schedule Section */}
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-xl font-serif font-bold flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-sepia" />
+                      <span>Delivery Schedule (Optional)</span>
+                    </h3>
+                    <p className="text-xs text-ink/40 mt-1">Control precisely when your recipient will be allowed to open this digital letter.</p>
                   </div>
 
-                  {isScheduled && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="pt-4 border-t border-ink/5 space-y-3 overflow-hidden"
-                    >
-                      <label className="block">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Delivery Date & Time</span>
-                        <input
-                          type="datetime-local"
-                          value={sendAt}
-                          onChange={(e) => setSendAt(e.target.value)}
-                          min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                          className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm font-mono text-ink"
-                          required
+                  <div className="bg-paper border border-ink/5 rounded-3xl p-6 space-y-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">Schedule for future delivery</p>
+                        <p className="text-xs text-ink/50">Keep this letter locked until the selected date and time.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsScheduled(!isScheduled);
+                          if (!isScheduled && !sendAt) {
+                            // Default to tomorrow
+                            const tomorrow = new Date();
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            tomorrow.setMinutes(tomorrow.getMinutes() - tomorrow.getTimezoneOffset());
+                            setSendAt(tomorrow.toISOString().slice(0, 16));
+                          }
+                        }}
+                        className={cn(
+                          "w-12 h-6 rounded-full p-1 transition-colors duration-200 focus:outline-none cursor-pointer",
+                          isScheduled ? "bg-sepia" : "bg-ink/10"
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "w-4 h-4 rounded-full bg-paper shadow-md transform transition-transform duration-200",
+                            isScheduled ? "translate-x-6" : "translate-x-0"
+                          )}
                         />
-                      </label>
-                      <p className="text-xs text-sepia italic font-serif">
-                        This letter will remain tightly sealed and unreadable until this date.
-                      </p>
-                    </motion.div>
-                  )}
+                      </button>
+                    </div>
+
+                    {isScheduled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="pt-4 border-t border-ink/5 space-y-3 overflow-hidden"
+                      >
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-ink/30 mb-2 block">Delivery Date & Time</span>
+                          <input
+                            type="datetime-local"
+                            value={sendAt}
+                            onChange={(e) => setSendAt(e.target.value)}
+                            min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                            className="w-full px-5 py-3 rounded-xl bg-paper border border-ink/5 focus:outline-none focus:ring-2 focus:ring-sepia/20 transition-all text-sm font-mono text-ink"
+                            required
+                          />
+                        </label>
+                        <p className="text-xs text-sepia italic font-serif">
+                          This letter will remain tightly sealed and unreadable until this date.
+                        </p>
+                      </motion.div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="h-[1px] bg-ink/5" />
-
-              <div className="p-6 rounded-3xl bg-sepia/5 border border-sepia/10 flex items-start gap-4">
-                <div className="w-10 h-10 bg-sepia/20 text-sepia rounded-xl flex items-center justify-center shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="font-serif font-bold text-lg mb-1">Make it special</h4>
-                  <p className="text-sm text-ink/60">Your recipient will see the envelope first. When they open it, the music will start playing automatically and your message will be revealed.</p>
-                </div>
-              </div>
-
-              <div className="flex justify-between pt-8">
+              <div className="flex justify-between pt-8 border-t border-ink/5">
                 <button
-                  onClick={() => setStep(2)}
+                  type="button"
+                  onClick={() => setStep(3)}
                   className="px-8 py-3 text-ink/60 font-medium hover:text-ink transition-colors"
                 >
                   Back
                 </button>
                 <button
-                  disabled={loading}
+                  disabled={loading || (hasPasscode && (!passcode.trim() || !passcodeHint.trim()))}
                   onClick={handleSubmit}
-                  className="px-10 py-4 bg-ink text-paper rounded-full font-bold hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 shadow-xl"
+                  className="px-10 py-4 bg-ink text-paper rounded-full font-bold hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 shadow-xl disabled:opacity-50"
                 >
                   {loading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />

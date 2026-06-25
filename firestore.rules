@@ -7,7 +7,7 @@ service cloud.firestore {
     }
     
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
     
     function incoming() {
@@ -20,12 +20,12 @@ service cloud.firestore {
 
     function isValidLetter(data) {
       return data.keys().hasAll(['content', 'envelopeUrl', 'createdAt', 'code']) &&
-             data.keys().size() <= 15 &&
+             data.keys().size() <= 25 &&
              data.content is string && data.content.size() <= 10000 &&
              data.envelopeUrl is string && data.envelopeUrl.size() <= 2000 &&
              data.createdAt == request.time &&
              data.code is string && data.code.size() <= 32 &&
-             (data.get('senderId', null) == null || (data.senderId is string && data.senderId == request.auth.uid)) &&
+             (data.get('senderId', null) == null || (request.auth != null && data.senderId is string && data.senderId == request.auth.uid)) &&
              (data.get('senderName', 'Anonymous') is string && data.get('senderName', 'Anonymous').size() <= 100) &&
              (data.get('recipientName', 'Friend') is string && data.get('recipientName', 'Friend').size() <= 100) &&
              (data.get('musicUrl', '') is string && data.get('musicUrl', '').size() <= 2000) &&
@@ -34,6 +34,12 @@ service cloud.firestore {
              (data.get('fileName', '') is string && data.get('fileName', '').size() <= 200) &&
              (data.get('borderStyle', '') is string && data.get('borderStyle', '').size() <= 100) &&
              (data.get('paperStyle', '') is string && data.get('paperStyle', '').size() <= 100) &&
+             (data.get('fontStyle', '') is string && data.get('fontStyle', '').size() <= 100) &&
+             (data.get('waxSealColor', '') is string && data.get('waxSealColor', '').size() <= 100) &&
+             (data.get('waxSealSymbol', '') is string && data.get('waxSealSymbol', '').size() <= 100) &&
+             (data.get('hasPasscode', false) is bool) &&
+             (data.get('passcode', '') is string && data.get('passcode', '').size() <= 1000) &&
+             (data.get('passcodeHint', '') is string && data.get('passcodeHint', '').size() <= 2000) &&
              (data.get('sendAt', null) == null || data.sendAt is timestamp);
     }
 
