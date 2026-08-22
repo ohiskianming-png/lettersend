@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, Timestamp, doc, setDoc, getDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles, Calendar, Award, Lock, Unlock, Key, PenTool, HelpCircle, Type, Crown, Heart } from 'lucide-react';
+import { Mail, Send, Image as ImageIcon, Music, Paperclip, Loader2, X, Sparkles, Calendar, Award, Lock, Unlock, Key, PenTool, HelpCircle, Type, Crown, Heart, Check, Trash2, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import confetti from 'canvas-confetti';
 import { PAPER_TEMPLATES, BORDER_TEMPLATES, getPaperStyle, FONT_TEMPLATES, getFontClass } from '../lib/styles';
 import BorderRenderer from '../components/BorderRenderer';
+
+const LOCAL_DRAFT_KEY = 'digital_letterbox_in_progress_draft';
 
 const ENVELOPE_PRESETS = [
   { id: 'vintage', url: 'https://images.unsplash.com/photo-1586075010633-24451963553a?auto=format&fit=crop&q=80&w=1000', name: 'Vintage' },
@@ -71,15 +73,128 @@ export default function CreatorPage({ user }: { user: User | null }) {
   // Draft / Autosave State
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [hasPromptedDraft, setHasPromptedDraft] = useState(false);
   const [draftToRestore, setDraftToRestore] = useState<any | null>(null);
+  const [restoredNotification, setRestoredNotification] = useState<string | null>(null);
 
   const draftIdRef = useRef<string | null>(null);
+  const latestDraftRef = useRef<any>(null);
 
   // Sync ref
   useEffect(() => {
     draftIdRef.current = draftId;
   }, [draftId]);
+
+  // Keep latest draft object in ref for instant beforeunload persistence
+  useEffect(() => {
+    latestDraftRef.current = {
+      content,
+      borderStyle,
+      paperStyle,
+      fontStyle,
+      waxSealColor,
+      waxSealSymbol,
+      hasPasscode,
+      passcode,
+      passcodeHint,
+      envelopeUrl,
+      senderName,
+      recipientName,
+      musicUrl,
+      musicTitle,
+      fileUrl,
+      fileName,
+      isScheduled,
+      sendAt,
+      step,
+      savedAt: new Date().toISOString()
+    };
+  }, [
+    content,
+    borderStyle,
+    paperStyle,
+    fontStyle,
+    waxSealColor,
+    waxSealSymbol,
+    hasPasscode,
+    passcode,
+    passcodeHint,
+    envelopeUrl,
+    senderName,
+    recipientName,
+    musicUrl,
+    musicTitle,
+    fileUrl,
+    fileName,
+    isScheduled,
+    sendAt,
+    step
+  ]);
+
+  // Beforeunload listener: guaranteed synchronous write on tab close / navigate away
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const draft = latestDraftRef.current;
+      if (draft && (draft.content?.trim() || draft.recipientName?.trim() || draft.senderName?.trim())) {
+        try {
+          localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify({
+            ...draft,
+            savedAt: new Date().toISOString()
+          }));
+        } catch (e) {
+          console.error("Error saving draft on beforeunload:", e);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Restore helper function
+  const applyDraftData = useCallback((draft: any, isLocal: boolean = false) => {
+    if (!draft) return;
+    if (draft.content !== undefined) setContent(draft.content || '');
+    if (draft.borderStyle) setBorderStyle(draft.borderStyle);
+    if (draft.paperStyle) setPaperStyle(draft.paperStyle);
+    if (draft.fontStyle) setFontStyle(draft.fontStyle);
+    if (draft.waxSealColor) setWaxSealColor(draft.waxSealColor);
+    if (draft.waxSealSymbol) setWaxSealSymbol(draft.waxSealSymbol);
+    if (draft.hasPasscode !== undefined) setHasPasscode(draft.hasPasscode);
+    if (draft.passcode) setPasscode(draft.passcode);
+    if (draft.passcodeHint) setPasscodeHint(draft.passcodeHint);
+    if (draft.envelopeUrl) setEnvelopeUrl(draft.envelopeUrl);
+    if (draft.senderName) setSenderName(draft.senderName);
+    if (draft.recipientName) setRecipientName(draft.recipientName);
+    if (draft.musicUrl) setMusicUrl(draft.musicUrl);
+    if (draft.musicTitle) setMusicTitle(draft.musicTitle);
+    if (draft.fileUrl) setFileUrl(draft.fileUrl);
+    if (draft.fileName) setFileName(draft.fileName);
+    if (draft.isScheduled !== undefined) setIsScheduled(draft.isScheduled);
+    if (draft.sendAt) {
+      if (draft.sendAt.toDate) {
+        setSendAt(draft.sendAt.toDate().toISOString().substring(0, 16));
+      } else {
+        setSendAt(new Date(draft.sendAt).toISOString().substring(0, 16));
+      }
+    }
+    if (draft.step) {
+      setStep(draft.step);
+    } else if (draft.content) {
+      setStep(2);
+    }
+    
+    const savedTime = draft.savedAt || draft.updatedAt;
+    if (savedTime) {
+      const d = savedTime.seconds ? new Date(savedTime.seconds * 1000) : new Date(savedTime);
+      setLastSavedAt(d);
+      setRestoredNotification(`Draft restored from your last session (${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`);
+    } else {
+      setRestoredNotification("Draft recovered from your browser");
+    }
+    setDraftStatus('saved');
+  }, []);
 
   // Check for existing draft on mount / user change
   useEffect(() => {
@@ -87,6 +202,22 @@ export default function CreatorPage({ user }: { user: User | null }) {
       if (hasPromptedDraft) return;
 
       try {
+        // 1. First priority: Check localStorage for immediate synchronous restore
+        const localSaved = localStorage.getItem(LOCAL_DRAFT_KEY);
+        if (localSaved) {
+          try {
+            const parsed = JSON.parse(localSaved);
+            if (parsed && (parsed.content?.trim() || parsed.recipientName?.trim())) {
+              applyDraftData(parsed, true);
+              setHasPromptedDraft(true);
+              return;
+            }
+          } catch (e) {
+            console.error("Failed to parse local draft:", e);
+          }
+        }
+
+        // 2. Secondary fallback: Check Firestore drafts if logged in or anonymous
         let foundDraftDoc: any = null;
         let foundDraftId: string | null = null;
 
@@ -124,56 +255,75 @@ export default function CreatorPage({ user }: { user: User | null }) {
         setHasPromptedDraft(true);
       } catch (err) {
         console.error("Error checking for draft:", err);
+        setHasPromptedDraft(true);
       }
     }
 
     checkForDraft();
-  }, [user, hasPromptedDraft]);
+  }, [user, hasPromptedDraft, applyDraftData]);
 
-  // Auto-save logic
+  // Auto-save logic: Persist immediately to localStorage, and sync to Firestore
   useEffect(() => {
-    if (!content.trim()) {
+    const hasMeaningfulContent = content.trim().length > 0 || recipientName.trim().length > 0 || senderName.trim().length > 0;
+
+    if (!hasMeaningfulContent) {
       setDraftStatus('idle');
       return;
     }
 
     setDraftStatus('saving');
 
+    const draftData: any = {
+      content,
+      borderStyle,
+      paperStyle,
+      fontStyle,
+      waxSealColor,
+      waxSealSymbol,
+      hasPasscode,
+      passcode,
+      passcodeHint,
+      envelopeUrl,
+      senderName,
+      recipientName,
+      musicUrl,
+      musicTitle,
+      fileUrl,
+      fileName,
+      isScheduled,
+      sendAt,
+      step,
+      savedAt: new Date().toISOString()
+    };
+
+    // 1. Immediately write to localStorage so navigating away never loses progress
+    try {
+      localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(draftData));
+      setLastSavedAt(new Date());
+    } catch (e) {
+      console.error("Local storage save error:", e);
+    }
+
+    // 2. Debounced sync to Firestore
     const timer = setTimeout(async () => {
       try {
-        const draftData: any = {
-          content,
-          borderStyle,
-          paperStyle,
-          fontStyle,
-          waxSealColor,
-          waxSealSymbol,
-          hasPasscode,
-          passcode,
-          passcodeHint,
-          envelopeUrl,
-          senderName,
-          recipientName,
-          musicUrl,
-          musicTitle,
-          fileUrl,
-          fileName,
-          isScheduled,
+        const firestoreData = {
+          ...draftData,
           senderId: user?.uid || null,
           updatedAt: serverTimestamp()
         };
 
         if (isScheduled && sendAt) {
-          draftData.sendAt = Timestamp.fromDate(new Date(sendAt));
+          firestoreData.sendAt = Timestamp.fromDate(new Date(sendAt));
         }
 
         const activeDraftId = draftIdRef.current;
 
         if (activeDraftId) {
           const docRef = doc(db, 'drafts', activeDraftId);
-          await setDoc(docRef, draftData, { merge: true });
+          await setDoc(docRef, firestoreData, { merge: true });
         } else {
-          const docRef = await addDoc(collection(db, 'drafts'), draftData);
+          const docRef = await addDoc(collection(db, 'drafts'), firestoreData);
           draftIdRef.current = docRef.id;
           setDraftId(docRef.id);
           if (!user) {
@@ -183,10 +333,11 @@ export default function CreatorPage({ user }: { user: User | null }) {
 
         setDraftStatus('saved');
       } catch (err) {
-        console.error("Auto-save error:", err);
-        setDraftStatus('error');
+        // Even if Firestore fails or is offline, local storage is already saved
+        console.warn("Firestore autosave sync warning (LocalStorage is active):", err);
+        setDraftStatus('saved'); // LocalStorage is saved regardless
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearTimeout(timer);
   }, [
@@ -208,42 +359,21 @@ export default function CreatorPage({ user }: { user: User | null }) {
     fileName,
     isScheduled,
     sendAt,
+    step,
     user
   ]);
 
   const restoreDraft = (draft: any) => {
-    if (!draft) return;
-    setContent(draft.content || '');
-    setBorderStyle(draft.borderStyle || 'default');
-    setPaperStyle(draft.paperStyle || 'default');
-    if (draft.fontStyle) setFontStyle(draft.fontStyle);
-    if (draft.waxSealColor) setWaxSealColor(draft.waxSealColor);
-    if (draft.waxSealSymbol) setWaxSealSymbol(draft.waxSealSymbol);
-    if (draft.hasPasscode !== undefined) setHasPasscode(draft.hasPasscode);
-    if (draft.passcode) setPasscode(draft.passcode);
-    if (draft.passcodeHint) setPasscodeHint(draft.passcodeHint);
-    setEnvelopeUrl(draft.envelopeUrl || ENVELOPE_PRESETS[0].url);
-    if (draft.senderName) setSenderName(draft.senderName);
-    setRecipientName(draft.recipientName || '');
-    setMusicUrl(draft.musicUrl || '');
-    setMusicTitle(draft.musicTitle || '');
-    setFileUrl(draft.fileUrl || '');
-    setFileName(draft.fileName || '');
-    if (draft.isScheduled !== undefined) setIsScheduled(draft.isScheduled);
-    if (draft.sendAt) {
-      if (draft.sendAt.toDate) {
-        setSendAt(draft.sendAt.toDate().toISOString().substring(0, 16));
-      } else {
-        setSendAt(new Date(draft.sendAt).toISOString().substring(0, 16));
-      }
-    }
-    if (draft.content) {
-      setStep(2);
-    }
+    applyDraftData(draft);
     setDraftToRestore(null);
   };
 
   const discardDraft = async () => {
+    // 1. Clear local storage
+    localStorage.removeItem(LOCAL_DRAFT_KEY);
+    localStorage.removeItem('anonymous_draft_id');
+
+    // 2. Clear remote draft if exists
     const activeDraftId = draftIdRef.current;
     if (activeDraftId) {
       try {
@@ -252,9 +382,32 @@ export default function CreatorPage({ user }: { user: User | null }) {
         console.error("Error deleting dismissed draft:", err);
       }
     }
+
+    // 3. Reset state
     setDraftId(null);
-    localStorage.removeItem('anonymous_draft_id');
     setDraftToRestore(null);
+    setRestoredNotification(null);
+    setContent('');
+    setRecipientName('');
+    setSenderName(user?.displayName || '');
+    setEnvelopeUrl(ENVELOPE_PRESETS[0].url);
+    setBorderStyle('default');
+    setPaperStyle('default');
+    setFontStyle('serif');
+    setWaxSealColor('crimson');
+    setWaxSealSymbol('heart');
+    setHasPasscode(false);
+    setPasscode('');
+    setPasscodeHint('');
+    setMusicUrl('');
+    setMusicTitle('');
+    setFileUrl('');
+    setFileName('');
+    setIsScheduled(false);
+    setSendAt('');
+    setStep(1);
+    setDraftStatus('idle');
+    setLastSavedAt(null);
   };
 
   const generateCode = () => {
@@ -355,6 +508,7 @@ export default function CreatorPage({ user }: { user: User | null }) {
           console.error("Failed to delete draft:", e);
         }
       }
+      localStorage.removeItem(LOCAL_DRAFT_KEY);
       localStorage.removeItem('anonymous_draft_id');
 
       // Navigate to success state or the letter itself
@@ -370,6 +524,38 @@ export default function CreatorPage({ user }: { user: User | null }) {
     <div className="pt-32 pb-20 px-6 max-w-4xl mx-auto">
       {/* Draft Restore Overlay / Banner */}
       <AnimatePresence>
+        {restoredNotification && !draftToRestore && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-6 p-4 rounded-2xl bg-sepia/10 border border-sepia/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-sepia shadow-sm"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-sepia flex-shrink-0" />
+              <span>{restoredNotification}</span>
+            </div>
+            <div className="flex items-center gap-3 self-end sm:self-center">
+              <button
+                type="button"
+                onClick={discardDraft}
+                className="text-xs font-semibold text-rose-700 hover:text-rose-900 underline cursor-pointer flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Discard & Start Fresh</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRestoredNotification(null)}
+                className="text-sepia/60 hover:text-sepia p-1 cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {draftToRestore && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -601,30 +787,43 @@ export default function CreatorPage({ user }: { user: User | null }) {
                   <h2 className="text-4xl font-serif font-bold mb-2 text-ink">The Message & Styling</h2>
                   <p className="text-ink/50">Pour your heart into words and style your parchment to match your words' emotions.</p>
                 </div>
-                <div className="text-xs font-mono text-ink/40 flex items-center gap-2 self-start md:self-end bg-ink/5 px-3.5 py-1.5 rounded-full transition-all">
-                  {draftStatus === 'saving' && (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-sepia" />
-                      <span>Saving draft...</span>
-                    </>
-                  )}
-                  {draftStatus === 'saved' && (
-                    <>
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse animate-duration-1000" />
-                      <span>Draft saved</span>
-                    </>
-                  )}
-                  {draftStatus === 'error' && (
-                    <>
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                      <span>Saving error</span>
-                    </>
-                  )}
-                  {draftStatus === 'idle' && (
-                    <>
-                      <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
-                      <span>Ready</span>
-                    </>
+                <div className="flex items-center gap-2 self-start md:self-end">
+                  <div className="text-xs font-mono text-ink/50 flex items-center gap-2 bg-ink/5 px-3.5 py-1.5 rounded-full transition-all">
+                    {draftStatus === 'saving' && (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-sepia" />
+                        <span>Saving...</span>
+                      </>
+                    )}
+                    {draftStatus === 'saved' && (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Autosaved {lastSavedAt ? lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'locally'}</span>
+                      </>
+                    )}
+                    {draftStatus === 'error' && (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        <span>Saved locally</span>
+                      </>
+                    )}
+                    {draftStatus === 'idle' && (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
+                        <span>Autosave active</span>
+                      </>
+                    )}
+                  </div>
+                  {content.trim().length > 0 && (
+                    <button
+                      type="button"
+                      onClick={discardDraft}
+                      className="text-xs text-ink/40 hover:text-rose-600 transition-colors p-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 cursor-pointer"
+                      title="Clear this draft and start a new letter"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Reset</span>
+                    </button>
                   )}
                 </div>
               </div>
